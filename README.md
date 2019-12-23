@@ -5,19 +5,19 @@ Client connection rabbitmq
 ### Config
 
 ```
-config := &ConfigRabbitMQArgument{
+config := &fmq.ConfigRabbitMQArgument{
   Host : "localhost",
   Port : 5762,
   Username: "admin",
   Password :"admin",
 
-  QueueConfig: mq.QueueConfig{
+  QueueConfig: fmq.QueueConfig{
     Name :"Queue name",
     Durable: true,
     AutoDelete: false,
   },
 
-  QueueBind: mq.QueueBind {
+  QueueBind: fmq.QueueBind {
     Name: "Queue bind",
     Key: "Queue Key",
     RutingKey:"Routing_Key"
