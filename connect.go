@@ -104,6 +104,7 @@ func (q *ConfigRabbitMQArgument) Send(message []byte) {
 			Body:        message,
 		})
 	logError("Sending message to queue failed", err)
+	log.Println("Sending message successfull:", string(message))
 }
 
 func (q *ConfigRabbitMQArgument) consume(consumer messageConsumer) {
