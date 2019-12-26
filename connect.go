@@ -17,6 +17,7 @@ type ConfigRabbitMQArgument struct {
 	Vhost         string
 	AutoReconnect bool
 	ExitOnErr     bool
+	Type          string
 
 	QueueConfig   QueueConfig
 	QueueBind     QueueBindConfig
@@ -75,6 +76,10 @@ func NewQueue(cfg ConfigRabbitMQArgument) *ConfigRabbitMQArgument {
 	// reinit
 	queue.url = queue.getURL()
 	queue.consumers = make([]messageConsumer, 0)
+
+	if queue.Type == "" {
+		log.Fatalln("Error client type is empty")
+	}
 
 	queue.connect()
 	go queue.reconnector()
@@ -147,10 +152,12 @@ func (q *ConfigRabbitMQArgument) reconnector() {
 			logError("Reconnecting after connection closed", err)
 
 			q.connect()
-			q.declareExchangeQueue()
-			q.declareQueue()
-			q.bindingQueue()
-			q.recoverConsumers()
+			if q.Type == ClientConsumerType {
+				q.declareExchangeQueue()
+				q.declareQueue()
+				q.bindingQueue()
+				q.recoverConsumers()
+			}
 		}
 	}
 }
@@ -167,9 +174,11 @@ func (q *ConfigRabbitMQArgument) connect() {
 			log.Println("Connection established!")
 
 			q.openChannel()
-			q.declareExchangeQueue()
-			q.declareQueue()
-			q.bindingQueue()
+			if q.Type == ClientConsumerType {
+				q.declareExchangeQueue()
+				q.declareQueue()
+				q.bindingQueue()
+			}
 
 			return
 		}
