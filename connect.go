@@ -1,6 +1,7 @@
 package fmq
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -32,6 +33,16 @@ type ConfigRabbitMQArgument struct {
 	closed       bool
 
 	consumers []messageConsumer
+}
+
+// ChangeFnCallback set function callback for consumer
+func (q *ConfigRabbitMQArgument) ChangeFnCallback(fn func([]byte)) error {
+	if fn == nil {
+		return fmt.Errorf("Function callback is empty")
+	}
+	q.FnCallback = fn
+
+	return nil
 }
 
 // QueueConfig is wrap data for queue config
@@ -98,7 +109,7 @@ func (q *ConfigRabbitMQArgument) getURL() string {
 }
 
 // Send is publisher
-func (q *ConfigRabbitMQArgument) Send(message []byte) {
+func (q *ConfigRabbitMQArgument) Send(message []byte) error {
 	err := q.channel.Publish(
 		q.ExchangeQueue.Name,   // exchange
 		q.QueueBind.RoutingKey, // routing key
@@ -108,14 +119,17 @@ func (q *ConfigRabbitMQArgument) Send(message []byte) {
 			ContentType: "application/json",
 			Body:        message,
 		})
-	logError("Sending message to queue failed", err)
-	log.Println("Sending message successfull:", string(message))
+	if err != nil {
+		logError("Sending message to queue failed", err)
+		return err
+	}
+
+	log.Println("Sending message successfull")
+	return nil
 }
 
 func (q *ConfigRabbitMQArgument) consume(consumer messageConsumer) {
-	log.Println("Registering consumer...")
 	deliveries, err := q.registerQueueConsumer()
-	log.Println("Consumer registered! Processing messages...")
 	q.executeMessageConsumer(err, consumer, deliveries, false)
 }
 
@@ -134,14 +148,13 @@ func (q *ConfigRabbitMQArgument) Consumer() {
 
 // Close is close connection from rabbit
 func (q *ConfigRabbitMQArgument) Close() {
-	log.Println("Closing connection")
 	q.closed = true
 	if err := q.channel.Close(); err != nil {
-		log.Println("Error close channel:", err)
+		logError("Error close channel:", err)
 	}
 
 	if err := q.connection.Close(); err != nil {
-		log.Println("Error close connection:", err)
+		logError("Error close connection:", err)
 	}
 }
 
@@ -204,7 +217,6 @@ func (q *ConfigRabbitMQArgument) declareExchangeQueue() {
 }
 
 func (q *ConfigRabbitMQArgument) declareQueue() {
-	log.Printf("declare queue %s ", q.QueueConfig.Name)
 	_, err := q.channel.QueueDeclare(
 		q.QueueConfig.Name,    // name
 		q.QueueConfig.Durable, // durable
