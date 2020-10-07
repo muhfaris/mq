@@ -1,0 +1,18 @@
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - gosimple
+    - structcheck
+    - ineffassign
+    - typecheck
+    - stylecheck
+    - misspell
+    - sqlclosecheck
+    - gomnd
+    - golint
+  disable:
+    - unused
+    - errcheck
+    - deadcode
+    - varcheck

@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
 )
 
@@ -12,7 +13,7 @@ import (
 type ConfigRabbitMQArgument struct {
 	Host          string
 	Port          int
-	AmqpURL       string
+	AMQPURL       string
 	Username      string
 	Password      string
 	Vhost         string
@@ -33,15 +34,16 @@ type ConfigRabbitMQArgument struct {
 	closed       bool
 
 	consumers []messageConsumer
+	log       *logrus.Logger
 }
 
 // ChangeFnCallback set function callback for consumer
 func (q *ConfigRabbitMQArgument) ChangeFnCallback(fn func([]byte)) error {
 	if fn == nil {
-		return fmt.Errorf("Function callback is empty")
+		return fmt.Errorf("function callback is empty")
 	}
-	q.FnCallback = fn
 
+	q.FnCallback = fn
 	return nil
 }
 
@@ -82,19 +84,46 @@ const (
 )
 
 // NewQueue is Connection to rabbit
-func NewQueue(cfg ConfigRabbitMQArgument) *ConfigRabbitMQArgument {
-	queue := cfg
-	// reinit
-	queue.url = queue.getURL()
-	queue.consumers = make([]messageConsumer, 0)
+func NewQueue(cfg ConfigRabbitMQArgument) (*ConfigRabbitMQArgument, error) {
+	queue := new(ConfigRabbitMQArgument)
+	queue = &cfg
 
-	if queue.Type == "" {
-		log.Fatalln("Error client type is empty")
+	log.Println(cfg)
+	url := cfg.getURL()
+	err := queue.changeURL(url)
+	if err != nil {
+		return &ConfigRabbitMQArgument{}, fmt.Errorf("error config is empty")
 	}
 
+	if !MessageQueueTypeValid(cfg.Type) {
+		return &ConfigRabbitMQArgument{}, fmt.Errorf("invalid type of configuration")
+	}
+
+	queue.logger()
+	queue.changeConsumer(0)
 	queue.connect()
 	go queue.reconnector()
-	return &queue
+
+	return queue, nil
+}
+
+func (q *ConfigRabbitMQArgument) changeURL(url string) error {
+	if url == "" {
+		return fmt.Errorf("error config is empty")
+	}
+
+	q.url = url
+	return nil
+}
+
+func (q *ConfigRabbitMQArgument) changeConsumer(length int) error {
+	q.consumers = make([]messageConsumer, length)
+	return nil
+}
+
+func (q *ConfigRabbitMQArgument) logger() {
+	q.log = logrus.New()
+	q.log.SetFormatter(&logrus.JSONFormatter{})
 }
 
 func (q *ConfigRabbitMQArgument) getURL() string {
@@ -119,12 +148,11 @@ func (q *ConfigRabbitMQArgument) Send(message []byte) error {
 			ContentType: "application/json",
 			Body:        message,
 		})
+
 	if err != nil {
-		logError("Sending message to queue failed", err)
 		return err
 	}
 
-	log.Println("Sending message successfull")
 	return nil
 }
 
@@ -143,26 +171,33 @@ func (q *ConfigRabbitMQArgument) Consumer() {
 			}
 		})
 	}()
+
 	<-stopChan
 }
 
 // Close is close connection from rabbit
-func (q *ConfigRabbitMQArgument) Close() {
-	q.closed = true
+func (q *ConfigRabbitMQArgument) Close() error {
+	if q.closed {
+		return fmt.Errorf("error already closed")
+	}
+
 	if err := q.channel.Close(); err != nil {
-		logError("Error close channel:", err)
+		return err
 	}
 
 	if err := q.connection.Close(); err != nil {
-		logError("Error close connection:", err)
+		return err
 	}
+
+	q.closed = true
+	return nil
 }
 
 func (q *ConfigRabbitMQArgument) reconnector() {
 	for {
 		err := <-q.errorChannel
 		if !q.closed {
-			logError("Reconnecting after connection closed", err)
+			q.log.Errorf("Reconnecting after connection closed, %v", err)
 
 			q.connect()
 			if q.Type == ClientConsumerType {
@@ -175,62 +210,69 @@ func (q *ConfigRabbitMQArgument) reconnector() {
 	}
 }
 
+const timesleepMs = 1000
+
 func (q *ConfigRabbitMQArgument) connect() {
 	for {
-		log.Printf("Connecting to rabbitmq on %s\n", q.url)
+		q.log.Infof("Connecting to rabbitmq on %s", q.url)
 		conn, err := amqp.Dial(q.url)
-		if err == nil {
-			q.connection = conn
-			q.errorChannel = make(chan *amqp.Error)
-			q.connection.NotifyClose(q.errorChannel)
-
-			log.Println("Connection established!")
-
-			q.openChannel()
-			if q.Type == ClientConsumerType {
-				q.declareExchangeQueue()
-				q.declareQueue()
-				q.bindingQueue()
-			}
-
+		if err != nil {
+			q.log.Errorf("Connection to rabbitmq failed. Retrying in 1 sec... ", err)
+			time.Sleep(timesleepMs * time.Millisecond)
 			return
 		}
 
-		logError("Connection to rabbitmq failed. Retrying in 1 sec... ", err)
-		time.Sleep(1000 * time.Millisecond)
+		q.connection = conn
+		q.errorChannel = make(chan *amqp.Error)
+		q.connection.NotifyClose(q.errorChannel)
+
+		q.log.Info("Connection established!")
+
+		q.openChannel()
+		if q.Type == ClientConsumerType {
+			q.declareExchangeQueue()
+			q.declareQueue()
+			q.bindingQueue()
+		}
 	}
 }
 
-func (q *ConfigRabbitMQArgument) declareExchangeQueue() {
-	log.Println(q.ExchangeQueue)
+func (q *ConfigRabbitMQArgument) declareExchangeQueue() error {
 	err := q.channel.ExchangeDeclare(
-		q.ExchangeQueue.Name,    // name of the exchange
-		q.ExchangeQueue.Type,    // type
-		q.ExchangeQueue.Durable, // durable
-		false,                   // delete when complete
-		false,                   // internal
-		false,                   // noWait
-		nil,                     // arguments
+		q.ExchangeQueue.Name,       // name of the exchange
+		q.ExchangeQueue.Type,       // type
+		q.ExchangeQueue.Durable,    // durable
+		q.ExchangeQueue.AutoDelete, // delete when complete
+		false,                      // internal
+		false,                      // noWait
+		nil,                        // arguments
 	)
-	logError("Exchange Declare: %s", err)
-	log.Println("Declare exchange queue is successfull:", q.ExchangeQueue.Name)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (q *ConfigRabbitMQArgument) declareQueue() {
+func (q *ConfigRabbitMQArgument) declareQueue() error {
 	_, err := q.channel.QueueDeclare(
-		q.QueueConfig.Name,    // name
-		q.QueueConfig.Durable, // durable
-		false,                 // delete when unused
-		false,                 // exclusive
-		false,                 // no-wait
-		nil,                   // arguments
+		q.QueueConfig.Name,       // name
+		q.QueueConfig.Durable,    // durable
+		q.QueueConfig.AutoDelete, // delete when unused
+		false,                    // exclusive
+		false,                    // no-wait
+		nil,                      // arguments
 	)
 
-	logError("Queue declaration failed", err)
-	log.Println("Declare Queue is successfull:", q.QueueConfig.Name)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (q *ConfigRabbitMQArgument) bindingQueue() {
+func (q *ConfigRabbitMQArgument) bindingQueue() error {
 	err := q.channel.QueueBind(
 		q.QueueBind.Name,       // name of the queue
 		q.QueueBind.RoutingKey, // bindingKey
@@ -239,16 +281,22 @@ func (q *ConfigRabbitMQArgument) bindingQueue() {
 		nil,                    // arguments
 	)
 
-	logError("Queue Bind:", err)
-	log.Printf("binding queue %s", q.QueueBind.RoutingKey)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (q *ConfigRabbitMQArgument) openChannel() {
+func (q *ConfigRabbitMQArgument) openChannel() error {
 	channel, err := q.connection.Channel()
-	logError("Opening channel failed", err)
+	if err != nil {
+		q.log.Errorf("error opening channel failed, error:%v", err)
+		return err
+	}
 
 	q.channel = channel
-	log.Println("Open channel is successfull :", q.QueueConfig.Name)
+	return nil
 }
 
 func (q *ConfigRabbitMQArgument) registerQueueConsumer() (<-chan amqp.Delivery, error) {
@@ -262,7 +310,6 @@ func (q *ConfigRabbitMQArgument) registerQueueConsumer() (<-chan amqp.Delivery, 
 		nil,                     // args
 	)
 
-	logError("Consuming messages from queue failed", err)
 	return msgs, err
 }
 
@@ -282,16 +329,26 @@ func (q *ConfigRabbitMQArgument) executeMessageConsumer(err error, consumer mess
 func (q *ConfigRabbitMQArgument) recoverConsumers() {
 	for i := range q.consumers {
 		var consumer = q.consumers[i]
+		q.log.Infoln("Recovering consumer...")
 
-		log.Println("Recovering consumer...")
 		msgs, err := q.registerQueueConsumer()
-		log.Println("Consumer recovered! Continuing message processing...")
+		q.log.Infoln("Consumer recovered! Continuing message processing...")
 		q.executeMessageConsumer(err, consumer, msgs, true)
 	}
 }
 
-func logError(message string, err error) {
-	if err != nil {
-		log.Printf("%s: %s", message, err)
+// AvailableMessageQueueType is availabel type
+func AvailableMessageQueueType() []string {
+	return []string{ClientConsumerType, ClientProducerType}
+}
+
+// MessageQueueTypeValid validate type
+func MessageQueueTypeValid(ty string) bool {
+	for _, mqType := range AvailableMessageQueueType() {
+		if ty == mqType {
+			return true
+		}
 	}
+
+	return false
 }
