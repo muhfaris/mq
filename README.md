@@ -1,98 +1,162 @@
 # Message RabbitMQ Client
+This library wrap from [github.com/streadway/amqp](streadway/amqp). Supporting reconnect if connection lost, easy configuration,
+support `SIGINT`, `SIGTERM`, `SIGQUIT`, `SIGSTOP` and closes connection
+
+Note: I use fro production.
 
 ### Config
 Valid type config below, it is case-sensitive.
 - PRODUCER
 - CONSUMER
 
+### Example
+This example for manual confirmation message and prefetch count 1 per consumer.
+
 #### Producer
 ```
-// config producer
-config := fmq.ConfigRabbitMQArgument{
-	Host:     viper.GetString("publisher_message_queuing_service.host"),
-	Port:     viper.GetInt("publisher_message_queuing_service.port"),
-	Username: viper.GetString("publisher_message_queuing_service.username"),
-	Password: viper.GetString("publisher_message_queuing_service.password"),
-	Vhost:    viper.GetString("publisher_message_queuing_service.vhost"),
+// producer.go
+package main
 
-	QueueConfig: fmq.QueueConfig{
-		Name:       viper.GetString("publisher_message_queuing_service.send_channel"),
-		Durable:    true,
-		AutoDelete: false,
-	},
+import (
+	"fmt"
+	"log"
+	"time"
 
-	QueueBind: fmq.QueueBindConfig{
-		Name:       viper.GetString("publisher_message_queuing_service.send_channel"),
-		RoutingKey: viper.GetString("publisher_message_queuing_service.send_channel"),
-	},
+	"github.com/muhfaris/mq"
+	"github.com/streadway/amqp"
+)
 
-	ExchangeQueue: fmq.ExchangeQueueConfig{
-		Name:       viper.GetString("publisher_message_queuing_service.send_channel"),
-		Type:       "direct",
-		Durable:    true,
-		AutoDelete: false,
-	},
-	Type: "PRODUCER",
-}
+func main() {
+	config := mq.ConfigRabbitMQArgument{
+		Name:     "publisher_rule_prepare",
+		Schema:   "amqp",
+		Host:     "localhost",
+		Username: "admin",
+		Password: "admin",
+		Vhost:    "/",
+		Port:     5672,
+		Type:     mq.ClientProducerType,
 
-// initialize
-producer = fmq.NewQueue(config)
+		PublisherConfig: mq.PublisherConfig{
+			ContentType:  "text/plain",
+			DeliveryMode: amqp.Persistent,
+		},
 
-// send data
-data := []byte("Hello world")
-_ := producer.Send(data)
+		QueueConfig: mq.QueueConfig{
+			Name:       "insight_data",
+			Durable:    true,
+			AutoDelete: false,
+		},
 
-```
+		QueueBind: mq.QueueBindConfig{
+			Name:       "insight_data",
+			RoutingKey: "insight_data",
+		},
+
+		ExchangeQueue: mq.ExchangeQueueConfig{
+			Name:       "insight_data",
+			Type:       "direct",
+			Durable:    true,
+			AutoDelete: false,
+		},
+	}
+
+	session, err := mq.NewQueue(config)
+	if err != nil {
+		log.Println("error new queue:", err)
+		return
+	}
+
+	var index int
+	for {
+		index++
+		message := []byte(fmt.Sprintf("HELLO, %d", index))
+		time.Sleep(time.Second * 3)
+		if err := session.Push(message); err != nil {
+			fmt.Printf("Push failed: %s\n", err)
+		} else {
+			fmt.Println("Push succeeded!")
+		}
+	}
+}```
 
 ### Consumer
 ```
-// config consumer
-config:= fmq.ConfigRabbitMQArgument{
-	Host:     viper.GetString("consumer_message_queuing_service.host"),
-	Port:     viper.GetInt("consumer_message_queuing_service.port"),
-	Username: viper.GetString("consumer_message_queuing_service.username"),
-	Password: viper.GetString("consumer_message_queuing_service.password"),
-	Vhost:    viper.GetString("consumer_message_queuing_service.vhost"),
+// config consumer.go
+package main
 
-	QueueConfig: fmq.QueueConfig{
-		Name:       viper.GetString("consumer_message_queuing_service.read_channel"),
-		Durable:    true,
-		AutoDelete: false,
-	},
+import (
+	"log"
 
-	QueueBind: fmq.QueueBindConfig{
-		Name:       viper.GetString("consumer_message_queuing_service.read_channel"),
-		RoutingKey: viper.GetString("consumer_message_queuing_service.read_channel"),
-	},
+	"github.com/muhfaris/mq"
+)
 
-	QueueConsumer: fmq.QueueConsumer{
-		QueueName: viper.GetString("consumer_message_queuing_service.read_channel"),
-		AutoACK:   true,
-	},
+func main() {
+	config := mq.ConfigRabbitMQArgument{
+		Name:     "consumer_prepare",
+		Schema:   "amqp",
+		Host:     "localhost",
+		Username: "admin",
+		Password: "admin",
+		Vhost:    "/",
+		Port:     5672,
+		Type:     mq.ClientConsumerType,
 
-	ExchangeQueue: fmq.ExchangeQueueConfig{
-		Name:       viper.GetString("consumer_message_queuing_service.read_channel"),
-		Type:       "direct",
-		Durable:    true,
-		AutoDelete: false,
-	},
-	FnCallback: consumerfn,
-	Type:       "CONSUMER",
+		QueueConfig: mq.QueueConfig{
+			Name:       "insight_data",
+			Durable:    true,
+			AutoDelete: false,
+		},
+
+		QueueBind: mq.QueueBindConfig{
+			Name:       "insight_data",
+			RoutingKey: "insight_data",
+		},
+
+		ExchangeQueue: mq.ExchangeQueueConfig{
+			Name:       "insight_data",
+			Type:       "direct",
+			Durable:    true,
+			AutoDelete: false,
+		},
+
+		QosConfig: mq.QosConfig{
+			PrefetchCount: 1,
+			PrefetchSize:  0,
+			Global:        false,
+		},
+	}
+
+	session, err := mq.NewQueue(config)
+	if err != nil {
+		log.Println("error new queue:", err)
+		return
+	}
+
+	stopChan := make(chan bool)
+	go func() {
+		msgs, err := session.Stream()
+		if err != nil {
+			log.Println("error stream data", err)
+			return
+		}
+
+		for {
+			select {
+			case d := <-msgs:
+				log.Println("MESSAGE:", string(d.Body))
+				if err := d.Ack(false); err != nil {
+					log.Println("error confirm message")
+					return
+				}
+
+				log.Println("message confirmed!")
+			}
+
+			log.Println(" [*] Waiting for logs. To exit press CTRL+C")
+		}
+	}()
+	<-stopChan
+
 }
-
-// initialize
-consumer = fmq.NewQueue(config)
-
-// stream data
-consumer.Consumer()
-```
-
-##### Create Consumer Function
-```
-//consumer.go
-func Consumer(message []byte) {
-    // do something here
-    log.Println(string(message))
-}
-
 ```
