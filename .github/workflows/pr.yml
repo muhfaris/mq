@@ -15,12 +15,8 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v2
 
-      - name: code coverage
+      - name: coverage
         uses: codecov/codecov-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
-          file: ./coverage.xml # optional
-          files: ./coverage_or.xml # optional
-          flags: unittests # optional
-          name: codecov-umbrella # optional
-          fail_ci_if_error: true # optional (default = false)
+          file: coverage.coverprofile
