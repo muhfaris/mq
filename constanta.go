@@ -1,4 +1,4 @@
-package fmq
+package mq
 
 const (
 	// ClientConsumerType tipe client rabbitnya sebagai consumer
