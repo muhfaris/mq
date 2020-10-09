@@ -142,18 +142,14 @@ func main() {
 			return
 		}
 
-        select {
-        case d := <-msgs:
-            log.Println("MESSAGE:", string(d.Body))
-            if err := d.Ack(false); err != nil {
-                log.Println("error confirm message")
-                return
-            }
-
-            log.Println("message confirmed!")
-        }
-
-			log.Println(" [*] Waiting for logs. To exit press CTRL+C")
+ 	for {
+			d := <-msgs
+			if err := d.Ack(false); err != nil {
+				log.Println("error confirm message")
+				return
+			}
+			log.Println("message confirmed!")
+		}
 	}()
 	<-stopChan
 }
