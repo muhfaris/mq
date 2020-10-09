@@ -343,7 +343,7 @@ func (session *RabbitMQ) Push(data []byte) error {
 // UnsafePush will push to the queue without checking for
 // confirmation. It returns an error if it fails to connect.
 // No guarantees are provided for whether the server will
-// recieve the message.
+// receive the message.
 func (session *RabbitMQ) UnsafePush(data []byte) error {
 	if !session.isReady {
 		return errors.New("not connected")
@@ -384,11 +384,13 @@ func (session *RabbitMQ) Stream() (<-chan amqp.Delivery, error) {
 	return (<-chan amqp.Delivery)(nil), nil
 }
 
+const waitingConnectionSec = 5
+
 func (session *RabbitMQ) isConnected() bool {
 	if !session.isReady {
 		for {
 			session.log.Warn("waiting for connection...")
-			time.Sleep(5 * time.Second)
+			time.Sleep(waitingConnectionSec * time.Second)
 			return session.isConnected()
 		}
 	}
@@ -477,7 +479,7 @@ type Closer interface {
 // After a reconnection scenerio we are gonna call shutdown before connection
 func shutdown(conn *amqp.Connection) error {
 	if err := conn.Close(); err != nil {
-		if amqpError, isAmqpError := err.(*amqp.Error); isAmqpError && amqpError.Code != 504 {
+		if amqpError, isAMQPError := err.(*amqp.Error); isAMQPError && amqpError.Code != 504 {
 			return fmt.Errorf("AMQP connection close error: %s", err)
 		}
 	}
@@ -491,7 +493,7 @@ func shutdownChannel(channel *amqp.Channel, tag string) error {
 	// flushed all outbound publishings prior to returning.  It's important to
 	// block on Close to not lose any publishings.
 	if err := channel.Cancel(tag, true); err != nil {
-		if amqpError, isAmqpError := err.(*amqp.Error); isAmqpError && amqpError.Code != 504 {
+		if amqpError, isAMQPError := err.(*amqp.Error); isAMQPError && amqpError.Code != 504 {
 			return fmt.Errorf("AMQP connection close error: %s", err)
 		}
 	}

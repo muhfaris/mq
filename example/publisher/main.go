@@ -9,6 +9,11 @@ import (
 	"github.com/streadway/amqp"
 )
 
+const (
+	port                    = 5672
+	sleepMessageDeliverySec = 3
+)
+
 func main() {
 	config := mq.ConfigRabbitMQArgument{
 		Name:     "publisher_rule_prepare",
@@ -17,7 +22,7 @@ func main() {
 		Username: "admin",
 		Password: "admin",
 		Vhost:    "/",
-		Port:     5672,
+		Port:     port,
 		Type:     mq.ClientProducerType,
 
 		PublisherConfig: mq.PublisherConfig{
@@ -54,7 +59,7 @@ func main() {
 	for {
 		index++
 		message := []byte(fmt.Sprintf("HELLO, %d", index))
-		time.Sleep(time.Second * 3)
+		time.Sleep(time.Second * sleepMessageDeliverySec)
 		if err := session.Push(message); err != nil {
 			fmt.Printf("Push failed: %s\n", err)
 		} else {

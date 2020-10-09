@@ -6,6 +6,8 @@ import (
 	"github.com/muhfaris/mq"
 )
 
+const port = 5672
+
 func main() {
 	config := mq.ConfigRabbitMQArgument{
 		Name:     "consumer_prepare",
@@ -14,7 +16,7 @@ func main() {
 		Username: "admin",
 		Password: "admin",
 		Vhost:    "/",
-		Port:     5672,
+		Port:     port,
 		Type:     mq.ClientConsumerType,
 
 		QueueConfig: mq.QueueConfig{
@@ -57,17 +59,12 @@ func main() {
 		}
 
 		for {
-			select {
-			case d := <-msgs:
-				if err := d.Ack(false); err != nil {
-					log.Println("error confirm message")
-					return
-				}
-
-				log.Println("message confirmed!")
+			d := <-msgs
+			if err := d.Ack(false); err != nil {
+				log.Println("error confirm message")
+				return
 			}
-
-			log.Println(" [*] Waiting for logs. To exit press CTRL+C")
+			log.Println("message confirmed!")
 		}
 	}()
 	<-stopChan
