@@ -1,0 +1,22 @@
+name: GolangCI Lint
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - master
+
+jobs:
+  golangci-linter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v2
+
+      - name: coverage
+        uses: codecov/codecov-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
+          file: coverage.coverprofile
