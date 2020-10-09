@@ -71,5 +71,4 @@ func main() {
 		}
 	}()
 	<-stopChan
-
 }

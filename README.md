@@ -78,7 +78,8 @@ func main() {
 			fmt.Println("Push succeeded!")
 		}
 	}
-}```
+}
+```
 
 ### Consumer
 ```
@@ -157,6 +158,5 @@ func main() {
 		}
 	}()
 	<-stopChan
-
 }
 ```
