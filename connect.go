@@ -419,7 +419,19 @@ func (session *RabbitMQ) Close() error {
 
 // Shutdown closes the RabbitMQ connection
 func (session *RabbitMQ) Shutdown() error {
-	return shutdown(session.connection)
+	if !session.isReady {
+		return nil
+	}
+
+	if err := shutdown(session.connection); err != nil {
+		return err
+	}
+
+	if err := shutdownChannel(session.channel, session.QueueConfig.Name); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // RegisterSignalHandler watchs for interrupt signals
